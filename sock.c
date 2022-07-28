@@ -64,8 +64,8 @@ typedef struct pcap_pkg_hdr {
     u_int32 len;
 }__attribute__((packed)) PCAP_PKG_HDR;
  
- /* From the example above: tcpdump -dd -s 0 udp */
-struct sock_filter code[] = {
+ /* From the example above: tcpdump -dd -s 0 udp 
+	struct sock_filter code[] = {
 
 	{ 0x15, 0, 5, 0x000086dd },
 
@@ -88,8 +88,9 @@ struct sock_filter code[] = {
 	{ 0x6, 0, 0, 0x00040000 },
 
 	{ 0x6, 0, 0, 0x00000000 },
-}; 
-
+	
+	}; 
+*/
 
 
  int main(int argc, char *argv[]){
@@ -120,10 +121,44 @@ struct sock_filter code[] = {
     close(SOCKET_SRC);
     exit(1);
   	}
-  	
+    /*  input filter code  */
+    char ch[100];
+    char ch1[100];
+    char str[100];
+    printf("Please specify filtering requirements based on BPF\n");
+    fgets(str,99,stdin);
+    str[strlen(str)-1]='\0';
+    strcpy(ch,"sudo tcpdump -dd ");
+    strcpy(ch1," | tee myfilter.txt");
+    strcat(ch, str);
+    strcat(ch, ch1);
+    printf("your filter code :\n");
+    system(ch);
+    printf("\n");
+    
+    FILE *data = NULL;
+    int len = 0;
+    char line[255] = {0};
+    struct sock_filter code[100] = {0};
+
+    if ((data = fopen("myfilter.txt","r")) == NULL) {
+        printf("Can not open file\n");
+        return 0;
+    }
+	while (fgets(line, 255, data)) {
+        sscanf(line, "{ %hx, %hhd, %hhd, %x },", &code[len].code, &code[len].jt, &code[len].jf, &code[len].k);
+        len++;
+    }
+//    for (int j = 0; j < len ; j++) {
+//    	printf("{ %hx, %hhd, %hhd, %x },\n", code[j].code, code[j].jt,code[j].jf,code[j].k);
+//	}
+//    
+    fclose(data);
+	
+    	
     /* Attach the filter to the socket */
     struct sock_fprog bpf = {
-	bpf.len = sizeof(code)/sizeof(struct sock_filter),
+	bpf.len = len,
 	bpf.filter = code,
 	};
     if( (ret = setsockopt(SOCKET_SRC, SOL_SOCKET, SO_ATTACH_FILTER, &bpf, sizeof(bpf))))
@@ -131,9 +166,9 @@ struct sock_filter code[] = {
     	 perror("setsockopt");
     	 close(SOCKET_SRC);
     	 exit(1);
-	}
+	}    
     
-    
+    /*  save pcap file header   */
  	PCAP_FILE_HDR pcap_file_hdr = {0};
 	PCAP_PKG_HDR pcap_pkg_hdr = {0};
 	struct timeval ts;
@@ -151,6 +186,7 @@ struct sock_filter code[] = {
     pcap_file_hdr.linktype = 0x01;
     fwrite(&pcap_file_hdr, sizeof(pcap_file_hdr), 1, pfile);
 	}
+	printf("Start catching pkg\n");
 	while(1){
 	/*returns the number of bytes received*/ 
     n_rd = recvfrom(SOCKET_SRC, buf, BUFFER_MAX, 0, NULL, NULL); 
@@ -159,6 +195,45 @@ struct sock_filter code[] = {
         continue;
     }
     printf("pkg size[%d] \n", n_rd);
+    /*      analysis data     */
+	
+	MAC_FRM_HDR *mac_hdr; //define a Ethernet frame header
+	IP_HDR *ip_hdr;       //define a IP header
+	char *tmp1, *tmp2;
+	int AND_LOGIC = 0xFF;
+ 
+	mac_hdr = buf;	//buf is what we got from the socket program
+	ip_hdr = buf + sizeof(MAC_FRM_HDR);
+ 
+	tmp1 = mac_hdr->src_addr;
+	tmp2 = mac_hdr->dest_addr;
+	/* print the MAC addresses of source and receiving host */
+	printf("MAC: %.2X:%.2X:%.2X:%.2X:%.2X:%.2X==>" "%.2X:%.2X:%.2X:%.2X:%.2X:%.2X   ",
+            tmp1[0]&AND_LOGIC, tmp1[1]&AND_LOGIC, tmp1[2]&AND_LOGIC,tmp1[3]&AND_LOGIC,
+            tmp1[4]&AND_LOGIC, tmp1[5]&AND_LOGIC,
+            tmp2[0]&AND_LOGIC, tmp2[1]&AND_LOGIC, tmp2[2]&AND_LOGIC,tmp2[3]&AND_LOGIC,
+            tmp2[4]&AND_LOGIC, tmp2[5]&AND_LOGIC);
+ 
+	tmp1 = (char*)&ip_hdr->ip_src;
+	tmp2 = (char*)&ip_hdr->ip_dest;
+	/* print the IP addresses of source and receiving host */
+	printf("IP: %d.%d.%d.%d => %d.%d.%d.%d",
+             tmp1[0]&AND_LOGIC, tmp1[1]&AND_LOGIC, tmp1[2]&AND_LOGIC,tmp1[3]&AND_LOGIC,
+             tmp2[0]&AND_LOGIC, tmp2[1]&AND_LOGIC, tmp2[2]&AND_LOGIC,tmp2[3]&AND_LOGIC);
+	/* print the IP protocol which was used by the socket communication */
+	switch(ip_hdr->ip_protocol) {
+         case IPPROTO_ICMP: printf("   Protocol:ICMP\n"); break;
+         case IPPROTO_IGMP: printf("   Protocol:IGMP\n"); break;
+         case IPPROTO_IPIP: printf("   Protocol:IPIP\n"); break;
+         case IPPROTO_TCP:
+ 	 	 case IPPROTO_UDP:
+                            printf("   Protocol: %s\n", ip_hdr->ip_protocol == IPPROTO_TCP ? "TCP" : "UDP");
+                            break;
+         case IPPROTO_RAW: printf("   Protocol:RAW\n"); break;
+         default: printf("Unknown, please query in inclued/linux/in.h\n"); break;
+}
+	
+	/*     Save data in pcap format     */ 
     if(pfile != NULL){
         gettimeofday(&ts, NULL);
         pcap_pkg_hdr.time_usec = ts.tv_usec;
@@ -170,5 +245,6 @@ struct sock_filter code[] = {
         /* termination control */
 		}
 	}
+	return 0;
 }
 
