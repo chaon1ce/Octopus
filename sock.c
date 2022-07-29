@@ -92,14 +92,20 @@ typedef struct pcap_pkg_hdr {
 	}; 
 */
 
+void analysis(char *buf);
+void SavePacpHead(FILE *pfile , struct timeval ts);
+int InputCode(struct sock_filter code[]);
 
  int main(int argc, char *argv[]){
  	int  SOCKET_SRC;
     char buf[BUFFER_MAX];
     int n_rd;
     int ret;
-//    unsigned char *iphead, *ethhead;
+    FILE *pfile;
+    struct timeval ts;
+    struct sock_filter code[100] = {0};
 	struct ifreq ethreq;
+	PCAP_PKG_HDR pcap_pkg_hdr = {0};
 
     if( (SOCKET_SRC = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_IP))) < 0 )
 	{
@@ -107,55 +113,23 @@ typedef struct pcap_pkg_hdr {
          close(SOCKET_SRC);
          exit(0);
     }
-    
     /* Set the network card in promiscuos mode */
   	strncpy(ethreq.ifr_name,ETH_NAME,IFNAMSIZ);
-  	if (ioctl(SOCKET_SRC,SIOCGIFFLAGS, &ethreq)==-1) {
+  	if (ioctl(SOCKET_SRC,SIOCGIFFLAGS, &ethreq)==-1)
+	{
     perror("ioctl");
     close(SOCKET_SRC);
     exit(1);
   	}
   	ethreq.ifr_flags|=IFF_PROMISC;
-  	if (ioctl(SOCKET_SRC,SIOCSIFFLAGS, &ethreq)==-1) {
+  	if (ioctl(SOCKET_SRC,SIOCSIFFLAGS, &ethreq)==-1) 
+	{
     perror("ioctl");
     close(SOCKET_SRC);
     exit(1);
   	}
     /*  input filter code  */
-    char ch[100];
-    char ch1[100];
-    char str[100];
-    printf("Please specify filtering requirements based on BPF\n");
-    fgets(str,99,stdin);
-    str[strlen(str)-1]='\0';
-    strcpy(ch,"sudo tcpdump -dd ");
-    strcpy(ch1," | tee myfilter.txt");
-    strcat(ch, str);
-    strcat(ch, ch1);
-    printf("your filter code :\n");
-    system(ch);
-    printf("\n");
-    
-    FILE *data = NULL;
-    int len = 0;
-    char line[255] = {0};
-    struct sock_filter code[100] = {0};
-
-    if ((data = fopen("myfilter.txt","r")) == NULL) {
-        printf("Can not open file\n");
-        return 0;
-    }
-	while (fgets(line, 255, data)) {
-        sscanf(line, "{ %hx, %hhd, %hhd, %x },", &code[len].code, &code[len].jt, &code[len].jf, &code[len].k);
-        len++;
-    }
-//    for (int j = 0; j < len ; j++) {
-//    	printf("{ %hx, %hhd, %hhd, %x },\n", code[j].code, code[j].jt,code[j].jf,code[j].k);
-//	}
-//    
-    fclose(data);
-	
-    	
+	int len = InputCode(code);
     /* Attach the filter to the socket */
     struct sock_fprog bpf = {
 	bpf.len = len,
@@ -167,36 +141,42 @@ typedef struct pcap_pkg_hdr {
     	 close(SOCKET_SRC);
     	 exit(1);
 	}    
-    
-    /*  save pcap file header   */
- 	PCAP_FILE_HDR pcap_file_hdr = {0};
-	PCAP_PKG_HDR pcap_pkg_hdr = {0};
-	struct timeval ts;
-	FILE *pfile;
+	/*    save pcap file header      */
 	pfile = fopen("fname.pcap", "wb");
-	if(pfile == NULL){
-    fprintf(stdout, "no file will be saved.\n");
-	}else{
-    pcap_file_hdr.magic = 0xa1b2c3d4;  //0xA1B2C3D4是pcap文件的固定文件识别头
-    pcap_file_hdr.ver_major = 0x02;
-    pcap_file_hdr.ver_minor = 0x04;
-    pcap_file_hdr.timezone = 0x00;
-    pcap_file_hdr.sigfigs = 0x00;
-    pcap_file_hdr.snaplen = 0xff;
-    pcap_file_hdr.linktype = 0x01;
-    fwrite(&pcap_file_hdr, sizeof(pcap_file_hdr), 1, pfile);
-	}
+    SavePacpHead(pfile , ts);
+	/*returns the number of bytes received*/   
 	printf("Start catching pkg\n");
-	while(1){
-	/*returns the number of bytes received*/ 
+	while(1)
+	{
     n_rd = recvfrom(SOCKET_SRC, buf, BUFFER_MAX, 0, NULL, NULL); 
-    if(n_rd < 46){
+    if(n_rd < 46)
+	{
         fprintf(stdout, "Incomplete header, packet corrupt\n");
         continue;
     }
     printf("pkg size[%d] \n", n_rd);
-    /*      analysis data     */
-	
+    analysis(buf);
+	/*     Save data in pcap format     */ 
+    if(pfile != NULL)
+		{
+        gettimeofday(&ts, NULL);
+        pcap_pkg_hdr.time_usec = ts.tv_usec;
+        pcap_pkg_hdr.time_sec = ts.tv_sec;
+        pcap_pkg_hdr.caplen = n_rd;
+        pcap_pkg_hdr.len = n_rd;
+        fwrite(&pcap_pkg_hdr, sizeof(pcap_pkg_hdr), 1, pfile);
+        fwrite(buf, n_rd, 1, pfile);
+        /* termination control */
+		}
+	}
+	return 0;
+}
+
+
+
+void analysis(char *buf)
+{
+	  /*      analysis data     */
 	MAC_FRM_HDR *mac_hdr; //define a Ethernet frame header
 	IP_HDR *ip_hdr;       //define a IP header
 	char *tmp1, *tmp2;
@@ -221,7 +201,8 @@ typedef struct pcap_pkg_hdr {
              tmp1[0]&AND_LOGIC, tmp1[1]&AND_LOGIC, tmp1[2]&AND_LOGIC,tmp1[3]&AND_LOGIC,
              tmp2[0]&AND_LOGIC, tmp2[1]&AND_LOGIC, tmp2[2]&AND_LOGIC,tmp2[3]&AND_LOGIC);
 	/* print the IP protocol which was used by the socket communication */
-	switch(ip_hdr->ip_protocol) {
+	switch(ip_hdr->ip_protocol) 
+	{
          case IPPROTO_ICMP: printf("   Protocol:ICMP\n"); break;
          case IPPROTO_IGMP: printf("   Protocol:IGMP\n"); break;
          case IPPROTO_IPIP: printf("   Protocol:IPIP\n"); break;
@@ -231,20 +212,66 @@ typedef struct pcap_pkg_hdr {
                             break;
          case IPPROTO_RAW: printf("   Protocol:RAW\n"); break;
          default: printf("Unknown, please query in inclued/linux/in.h\n"); break;
-}
-	
-	/*     Save data in pcap format     */ 
-    if(pfile != NULL){
-        gettimeofday(&ts, NULL);
-        pcap_pkg_hdr.time_usec = ts.tv_usec;
-        pcap_pkg_hdr.time_sec = ts.tv_sec;
-        pcap_pkg_hdr.caplen = n_rd;
-        pcap_pkg_hdr.len = n_rd;
-        fwrite(&pcap_pkg_hdr, sizeof(pcap_pkg_hdr), 1, pfile);
-        fwrite(buf, n_rd, 1, pfile);
-        /* termination control */
-		}
 	}
-	return 0;
 }
 
+void SavePacpHead(FILE *pfile , struct timeval ts)
+{
+	/*  save pcap file header   */
+ 	PCAP_FILE_HDR pcap_file_hdr = {0};
+	if(pfile == NULL)
+	{
+    fprintf(stdout, "no file will be saved.\n");
+	}
+	else
+	{
+    pcap_file_hdr.magic = 0xa1b2c3d4;  //0xA1B2C3D4是pcap文件的固定文件识别头
+    pcap_file_hdr.ver_major = 0x02;
+    pcap_file_hdr.ver_minor = 0x04;
+    pcap_file_hdr.timezone = 0x00;
+    pcap_file_hdr.sigfigs = 0x00;
+    pcap_file_hdr.snaplen = 0xff;
+    pcap_file_hdr.linktype = 0x01;
+    fwrite(&pcap_file_hdr, sizeof(pcap_file_hdr), 1, pfile);
+	}
+}
+
+
+int InputCode(struct sock_filter code[])
+{
+	  /*  input filter code  */
+    char ch[100];
+    char ch1[100];
+    char str[100];
+    printf("Please specify filtering requirements based on BPF\n");
+    fgets(str,99,stdin);
+    str[strlen(str)-1]='\0';
+    strcpy(ch,"sudo tcpdump -dd ");
+    strcpy(ch1," | tee myfilter.txt");
+    strcat(ch, str);
+    strcat(ch, ch1);
+    printf("your filter code :\n");
+    system(ch);
+    printf("\n");
+    
+    FILE *data = NULL;
+    int len = 0;
+    char line[255] = {0};
+
+    if ((data = fopen("myfilter.txt","r")) == NULL)
+	{
+        printf("Can not open file\n");
+        return 0;
+    }
+	while (fgets(line, 255, data)) 
+	{
+        sscanf(line, "{ %hx, %hhd, %hhd, %x },", &code[len].code, &code[len].jt, &code[len].jf, &code[len].k);
+        len++;
+    }
+//    for (int j = 0; j < len ; j++) {
+//    	printf("{ %hx, %hhd, %hhd, %x },\n", code[j].code, code[j].jt,code[j].jf,code[j].k);
+//	}
+//    
+    fclose(data);
+    return len;
+}
