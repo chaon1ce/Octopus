@@ -1,6 +1,5 @@
-all: sock.c
-	gcc -g -Wall -o sock sock.c -lpcap
+all: Octopus.c
+	gcc -g -Wall -o Octopus Octopus.c -lpcap
 
 clean:
-	rm -rf *.o sock
-
+	rm -rf *.o Octopus
