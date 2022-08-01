@@ -7,7 +7,7 @@
 	供and、or、not等逻辑语句来帮助你去掉无用的信息。 
 	
 	
-    Octopus [ -c count ] [ -w file ] [ -v ]  [ -d filter ] [ -i interface ]
+        ./Octopus [ -c count ] [ -w file ] [ -v ]  [ -d filter ] [ -i interface ]
   	
   	-c   收到count个计数包后退出。
   	-w   将收到的文件以pacp格式保存在file路径文件中
