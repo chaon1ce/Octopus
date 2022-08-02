@@ -7,7 +7,7 @@
 	供and、or、not等逻辑语句来帮助你去掉无用的信息。 
 	
 	
-    Octopus [ -c count ] [ -w file ] [ -v ]  [ -d filter ] [ -i interface ]
+    ./Octopus [ -c count ] [ -w file ] [ -v ]  [ -d filter ] [ -i interface ]
   	
   	-c   收到count个计数包后退出。
   	-w   将收到的文件以pacp格式保存在file路径文件中
@@ -33,6 +33,7 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <linux/if_ether.h>
+#include <pcap.h>
 #include <sys/time.h>
 #include <stdio.h>
 #include <net/if.h>
@@ -40,31 +41,30 @@
 #include <sys/ioctl.h>
 #include <stdlib.h> 
 #include <string.h>
-#include <pcap.h>
- 
+
 #define BUFFER_MAX 2048
 #define ETH_NAME    "ens33"
 
- 
+
  typedef int int32;
  typedef unsigned int u_int32;
  typedef unsigned char u_char;
  typedef unsigned short u_short;
- 
+
  typedef struct mac_frm_hdr {
      char dest_addr[6];	//destination MAC address shall be defined first.
      char src_addr[6];
      short type;
  }__attribute__((packed)) MAC_FRM_HDR;
- 
- 
+
+
  typedef struct ip_hdr{ 	//header of IPV4
     #ifdef __LITTLE_ENDIAN_BIFIELD
         u_char ip_len:4, ip_ver:4;
     #else
         u_char ip_ver:4, ip_len:4;
     #endif
- 
+
     u_char  ip_tos;
     u_short ip_total_len;
     u_short ip_id;
@@ -75,8 +75,8 @@
     u_int32 ip_src;
     u_int32 ip_dest;
 }__attribute__((packed)) IP_HDR;
- 
- 
+
+
  typedef struct pcap_file_hdr {
    u_int32 magic;
    u_short ver_major;
@@ -94,30 +94,19 @@ typedef struct pcap_pkg_hdr {
     u_int32 caplen;
     u_int32 len;
 }__attribute__((packed)) PCAP_PKG_HDR;
- 
+
  /* From the example above: tcpdump -dd -s 0 udp 
 	struct sock_filter code[] = {
-
 	{ 0x15, 0, 5, 0x000086dd },
-
 	{ 0x30, 0, 0, 0x00000014 },
-
 	{ 0x15, 6, 0, 0x00000011 },
-
 	{ 0x15, 0, 6, 0x0000002c },
-
 	{ 0x30, 0, 0, 0x00000036 },
-
 	{ 0x15, 3, 4, 0x00000011 },
-
 	{ 0x15, 0, 3, 0x00000800 },
-
 	{ 0x30, 0, 0, 0x00000017 },
-
 	{ 0x15, 0, 1, 0x00000011 },
-
 	{ 0x6, 0, 0, 0x00040000 },
-
 	{ 0x6, 0, 0, 0x00000000 },
 	
 	}; 
@@ -131,7 +120,7 @@ struct sock_fprog AddFilter(char Filter[]);
     char buf[BUFFER_MAX];
     char Filter[100];
     char str[100];
-    char ethname[100];
+    char ETHNAME[100];
     int FlagSave = 0;
 	int FlagAnalysis = 0;
 	int FlagEth = 0;
@@ -140,11 +129,12 @@ struct sock_fprog AddFilter(char Filter[]);
     int n_rd;
     int ret;
     int id = 0;
-    PCAP_FILE_HDR pcap_file_hdr = {0};
+    struct sock_filter code[100] = {0};
+	struct ifreq ethreq;
+	PCAP_FILE_HDR pcap_file_hdr = {0};
 	PCAP_PKG_HDR pcap_pkg_hdr = {0};
 	struct timeval ts;
 	FILE *pfile;
-	struct ifreq ethreq;
 	
 	for(int i = 1;i < argc; i++)
 	{
@@ -168,12 +158,12 @@ struct sock_fprog AddFilter(char Filter[]);
 					break;
 				case 'i':
 					FlagEth = 1;
-					strcpy(ethname,(argv[i+1])); 
+					strcpy(ETHNAME,(argv[i+1])); 
 					break;
 			}
 		}
 	}
-	
+
     if( (SOCKET_SRC = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_IP))) < 0 )
 	{
          perror("socket");
@@ -182,7 +172,7 @@ struct sock_fprog AddFilter(char Filter[]);
     }
     if(FlagEth)
     {
-    	strncpy(ethreq.ifr_name,ethname,IFNAMSIZ);
+    	strncpy(ethreq.ifr_name,ETHNAME,IFNAMSIZ);
     	if (ioctl(SOCKET_SRC,SIOCGIFFLAGS, &ethreq)==-1)
 		{
    		perror("ioctl");
@@ -222,7 +212,7 @@ struct sock_fprog AddFilter(char Filter[]);
 	/*    save pcap file header      */
 	if(FlagSave)
 	{
-	pfile = fopen(str, "wb");
+    pfile = fopen(str, "wb");
 	if(pfile == NULL)
 	{
     fprintf(stdout, "no file will be saved.\n");
@@ -288,10 +278,10 @@ void analysis(char *buf)
 	IP_HDR *ip_hdr;       //define a IP header
 	char *tmp1, *tmp2;
 	int AND_LOGIC = 0xFF;
- 
+
 	mac_hdr = buf;	//buf is what we got from the socket program
 	ip_hdr = buf + sizeof(MAC_FRM_HDR);
- 
+
 	tmp1 = mac_hdr->src_addr;
 	tmp2 = mac_hdr->dest_addr;
 	/* print the MAC addresses of source and receiving host */
@@ -300,7 +290,7 @@ void analysis(char *buf)
             tmp1[4]&AND_LOGIC, tmp1[5]&AND_LOGIC,
             tmp2[0]&AND_LOGIC, tmp2[1]&AND_LOGIC, tmp2[2]&AND_LOGIC,tmp2[3]&AND_LOGIC,
             tmp2[4]&AND_LOGIC, tmp2[5]&AND_LOGIC);
- 
+
 	tmp1 = (char*)&ip_hdr->ip_src;
 	tmp2 = (char*)&ip_hdr->ip_dest;
 	/* print the IP addresses of source and receiving host */
@@ -322,9 +312,10 @@ void analysis(char *buf)
 	}
 }
 
+
 struct sock_fprog AddFilter(char Filter[])
 {
-    char errBuf[PCAP_ERRBUF_SIZE];
+    char errBuf[2048];
 	pcap_t * device = pcap_open_live(ETH_NAME, 65535, 1, 0, errBuf);
 	 if (!device)
     {
@@ -352,5 +343,3 @@ struct sock_fprog AddFilter(char Filter[])
 	bpf.filter = code;
 	return bpf;
 }
-
-
