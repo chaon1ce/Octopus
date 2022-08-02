@@ -7,7 +7,7 @@
 	供and、or、not等逻辑语句来帮助你去掉无用的信息。 
 	
 	
-        ./Octopus [ -c count ] [ -w file ] [ -v ]  [ -d filter ] [ -i interface ]
+    Octopus [ -c count ] [ -w file ] [ -v ]  [ -d filter ] [ -i interface ]
   	
   	-c   收到count个计数包后退出。
   	-w   将收到的文件以pacp格式保存在file路径文件中
@@ -33,7 +33,6 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <linux/if_ether.h>
-#include <linux/in.h>
 #include <sys/time.h>
 #include <stdio.h>
 #include <net/if.h>
@@ -41,6 +40,7 @@
 #include <sys/ioctl.h>
 #include <stdlib.h> 
 #include <string.h>
+#include <pcap.h>
  
 #define BUFFER_MAX 2048
 #define ETH_NAME    "ens33"
@@ -124,15 +124,14 @@ typedef struct pcap_pkg_hdr {
 */
 
 void analysis(char *buf);
-void SavePacpHead(FILE *pfile ,struct timeval ts ,char str[]);
-int InputCode(struct sock_filter code[] ,char str[]);
+struct sock_fprog AddFilter(char Filter[]);
 
  int main(int argc, char *argv[]){
  	int  SOCKET_SRC;
     char buf[BUFFER_MAX];
-    char filter[100];
+    char Filter[100];
     char str[100];
-    char ETHNAME[100];
+    char ethname[100];
     int FlagSave = 0;
 	int FlagAnalysis = 0;
 	int FlagEth = 0;
@@ -141,12 +140,11 @@ int InputCode(struct sock_filter code[] ,char str[]);
     int n_rd;
     int ret;
     int id = 0;
-    FILE *pfile;
-    pfile = NULL;
-    struct timeval ts;
-    struct sock_filter code[100] = {0};
-	struct ifreq ethreq;
+    PCAP_FILE_HDR pcap_file_hdr = {0};
 	PCAP_PKG_HDR pcap_pkg_hdr = {0};
+	struct timeval ts;
+	FILE *pfile;
+	struct ifreq ethreq;
 	
 	for(int i = 1;i < argc; i++)
 	{
@@ -163,14 +161,14 @@ int InputCode(struct sock_filter code[] ,char str[]);
 					break;
 				case 'd':
 					FlagFilter = 1;
-					strcpy(filter,(argv[i+1]));
+					strcpy(Filter,(argv[i+1]));
 					break;
 				case 'c':
 					max = atoi(argv[i+1]);
 					break;
 				case 'i':
 					FlagEth = 1;
-					strcpy(ETHNAME,(argv[i+1])); 
+					strcpy(ethname,(argv[i+1])); 
 					break;
 			}
 		}
@@ -184,7 +182,7 @@ int InputCode(struct sock_filter code[] ,char str[]);
     }
     if(FlagEth)
     {
-    	strncpy(ethreq.ifr_name,ETHNAME,IFNAMSIZ);
+    	strncpy(ethreq.ifr_name,ethname,IFNAMSIZ);
     	if (ioctl(SOCKET_SRC,SIOCGIFFLAGS, &ethreq)==-1)
 		{
    		perror("ioctl");
@@ -213,12 +211,7 @@ int InputCode(struct sock_filter code[] ,char str[]);
     /*  input filter code  */
     if(FlagFilter)
     {
-	int len = InputCode(code,filter);
-    /* Attach the filter to the socket */
-    struct sock_fprog bpf = {
-	bpf.len = len,
-	bpf.filter = code,
-	};
+	struct sock_fprog bpf = AddFilter(Filter);
     if( (ret = setsockopt(SOCKET_SRC, SOL_SOCKET, SO_ATTACH_FILTER, &bpf, sizeof(bpf))))
     	{
     	 perror("setsockopt");
@@ -229,7 +222,22 @@ int InputCode(struct sock_filter code[] ,char str[]);
 	/*    save pcap file header      */
 	if(FlagSave)
 	{
-    SavePacpHead(pfile , ts ,str);
+	pfile = fopen(str, "wb");
+	if(pfile == NULL)
+	{
+    fprintf(stdout, "no file will be saved.\n");
+	}
+	else
+		{
+    pcap_file_hdr.magic = 0xa1b2c3d4;  //0xA1B2C3D4是pcap文件的固定文件识别头
+    pcap_file_hdr.ver_major = 0x02;
+    pcap_file_hdr.ver_minor = 0x04;
+    pcap_file_hdr.timezone = 0x00;
+    pcap_file_hdr.sigfigs = 0x00;
+    pcap_file_hdr.snaplen = 0xff;
+    pcap_file_hdr.linktype = 0x01;
+    fwrite(&pcap_file_hdr, sizeof(pcap_file_hdr), 1, pfile);
+		}
 	}
 	/*returns the number of bytes received*/   
 	printf("Start catching pkg\n");
@@ -264,7 +272,10 @@ int InputCode(struct sock_filter code[] ,char str[]);
 		break;
 		}
 	}
+	if(pfile != NULL) 
+	{
 	fclose(pfile);
+	}
 	return 0;
 }
 
@@ -311,61 +322,35 @@ void analysis(char *buf)
 	}
 }
 
-void SavePacpHead(FILE *pfile , struct timeval ts ,char str[])
+struct sock_fprog AddFilter(char Filter[])
 {
-	/*  save pcap file header   */
-	pfile = fopen(str, "wb"); 
- 	PCAP_FILE_HDR pcap_file_hdr = {0};
-	if(pfile == NULL)
+    char errBuf[PCAP_ERRBUF_SIZE];
+	pcap_t * device = pcap_open_live(ETH_NAME, 65535, 1, 0, errBuf);
+	 if (!device)
+    {
+        printf("error: open_live\n");
+        exit(1);
+    }
+	struct bpf_program filter;
+	struct sock_fprog bpf; 
+    int ret = pcap_compile(device, &filter, Filter, 1, 0);
+    if(ret < 0)
 	{
-    fprintf(stdout, "no file will be saved.\n");
+	printf("compile error\n");
 	}
-	else
+    bpf.len = filter.bf_len;
+        struct sock_filter code[100];
+	struct bpf_insn *bf;
+	bf = filter.bf_insns;
+	for(int i = 0;i < bpf.len;i++)
 	{
-    pcap_file_hdr.magic = 0xa1b2c3d4;  //0xA1B2C3D4是pcap文件的固定文件识别头
-    pcap_file_hdr.ver_major = 0x02;
-    pcap_file_hdr.ver_minor = 0x04;
-    pcap_file_hdr.timezone = 0x00;
-    pcap_file_hdr.sigfigs = 0x00;
-    pcap_file_hdr.snaplen = 0xff;
-    pcap_file_hdr.linktype = 0x01;
-    fwrite(&pcap_file_hdr, sizeof(pcap_file_hdr), 1, pfile);
+	code[i].code = bf[i].code;
+	code[i].jt = bf[i].jt;
+	code[i].jf = bf[i].jf;
+	code[i].k = bf[i].k;
 	}
+	bpf.filter = code;
+	return bpf;
 }
 
 
-int InputCode(struct sock_filter code[],char str[])
-{
-	  /*  input filter code  */
-    char ch[100];
-    char ch1[100];
-//   str[strlen(str)-1]='\0';
-    strcpy(ch,"sudo tcpdump -dd ");
-    strcpy(ch1," | tee myfilter.txt");
-    strcat(ch, str);
-    strcat(ch, ch1);
-    printf("your filter code :\n");
-    system(ch);
-    printf("\n");
-    
-    FILE *data = NULL;
-    int len = 0;
-    char line[255] = {0};
-
-    if ((data = fopen("myfilter.txt","r")) == NULL)
-	{
-        printf("Can not open file\n");
-        return 0;
-    }
-	while (fgets(line, 255, data)) 
-	{
-        sscanf(line, "{ %hx, %hhd, %hhd, %x },", &code[len].code, &code[len].jt, &code[len].jf, &code[len].k);
-        len++;
-    }
-//    for (int j = 0; j < len ; j++) {
-//    	printf("{ %hx, %hhd, %hhd, %x },\n", code[j].code, code[j].jt,code[j].jf,code[j].k);
-//	}
-//    
-    fclose(data);
-    return len;
-}
