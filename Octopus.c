@@ -144,21 +144,58 @@ struct sock_fprog AddFilter(char Filter[]);
 			{
 				case 'w':
 					FlagSave = 1;
-					strcpy(str,(argv[i+1]));
+					if(i+1 < argc)
+					{
+					strncpy(str,(argv[i+1]),99);
+					}
+					else
+					{
+					printf("input error\n");
+					return 0;
+					}
 					break;
 				case 'v':
 					FlagAnalysis = 1;
 					break;
 				case 'd':
 					FlagFilter = 1;
-					strcpy(Filter,(argv[i+1]));
+					if(i+1 < argc)
+					{
+					strncpy(Filter,(argv[i+1]),99);
+					}
+					else
+					{
+					printf("input error\n");
+					return 0;
+					}
 					break;
 				case 'c':
+					if(i+1 < argc)
+					{
 					max = atoi(argv[i+1]);
+					if(max == 0)
+					   {
+					    printf("input error\n");
+					    return 0;
+					   }
+					}
+					else
+					{
+					printf("input error\n");
+					return 0;
+					}
 					break;
 				case 'i':
 					FlagEth = 1;
-					strcpy(ETHNAME,(argv[i+1])); 
+					if(i+1 < argc)
+					{
+					strncpy(ETHNAME,(argv[i+1]),99); 
+					}
+					else
+					{
+					printf("input error\n");
+					return 0;
+					}
 					break;
 			}
 		}
@@ -257,7 +294,7 @@ struct sock_fprog AddFilter(char Filter[]);
         fwrite(buf, n_rd, 1, pfile);
         /* termination control */
 		}
-	if(id > max)
+	if(id > max - 1)
 		{
 		break;
 		}
