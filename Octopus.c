@@ -7,14 +7,14 @@
 	供and、or、not等逻辑语句来帮助你去掉无用的信息。 
 	
 	
-    ./Octopus [ -c count ] [ -w file ] [ -v ]  [ -d filter ] [ -i interface ]
+    	./Octopus [ -c count ] [ -w file ] [ -v ]  [ -d filter ] [ -i interface ]
   	
   	-c   收到count个计数包后退出。
   	-w   将收到的文件以pacp格式保存在file路径文件中
 	-v   在命令行简单分析数据包
 	-d   为程序添加数据采集过滤规则
 	     比如：
-		 'tcp port 80 and udp'   只抓取来自端口80的udp数据包
+		 'port 80 and udp'   只抓取来自端口80的udp数据包
 		 'tcp port 23 and host 192.168.1.120'   获取主机192.168.1.120接收或发出的telnet包 
   	-i   指定网卡 
   	
@@ -116,20 +116,20 @@ void analysis(char *buf);
 struct sock_fprog AddFilter(char Filter[]);
 
  int main(int argc, char *argv[]){
- 	int  SOCKET_SRC;
-    char buf[BUFFER_MAX];
-    char Filter[100];
-    char str[100];
-    char ETHNAME[100];
-    int FlagSave = 0;
-	int FlagAnalysis = 0;
-	int FlagEth = 0;
-	int FlagFilter = 0;
-	int max = 9999;
-    int n_rd;
-    int ret;
-    int id = 0;
-    struct sock_filter code[100] = {0};
+  	int  SOCKET_SRC;
+  	char buf[BUFFER_MAX];
+  	char Filter[100];
+	char str[100];
+   	char ETHNAME[100];
+   	int FlagSave = 0;
+   	int FlagAnalysis = 0;
+   	int FlagEth = 0;
+   	int FlagFilter = 0;
+   	int max = 9999;
+   	int n_rd;
+   	int ret;
+   	int id = 0;
+   	struct sock_filter code[100] = {0};
 	struct ifreq ethreq;
 	PCAP_FILE_HDR pcap_file_hdr = {0};
 	PCAP_PKG_HDR pcap_pkg_hdr = {0};
@@ -169,9 +169,9 @@ struct sock_fprog AddFilter(char Filter[]);
          perror("socket");
          close(SOCKET_SRC);
          exit(0);
-    }
+    	}
     if(FlagEth)
-    {
+    	{
     	strncpy(ethreq.ifr_name,ETHNAME,IFNAMSIZ);
     	if (ioctl(SOCKET_SRC,SIOCGIFFLAGS, &ethreq)==-1)
 		{
@@ -207,8 +207,8 @@ struct sock_fprog AddFilter(char Filter[]);
     	 perror("setsockopt");
     	 close(SOCKET_SRC);
     	 exit(1);
-		}
-	}    
+	}
+    }    
 	/*    save pcap file header      */
 	if(FlagSave)
 	{
@@ -238,7 +238,7 @@ struct sock_fprog AddFilter(char Filter[]);
 	{
         fprintf(stdout, "Incomplete header, packet corrupt\n");
         continue;
-    }
+    	}
     printf("id = %d pkg size[%d] \n", id, n_rd);
     id++;
     if(FlagAnalysis)
@@ -315,7 +315,7 @@ void analysis(char *buf)
 
 struct sock_fprog AddFilter(char Filter[])
 {
-    char errBuf[2048];
+    	char errBuf[2048];
 	pcap_t * device = pcap_open_live(ETH_NAME, 65535, 1, 0, errBuf);
 	 if (!device)
     {
