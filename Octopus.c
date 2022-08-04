@@ -14,7 +14,7 @@
 	-v   在命令行简单分析数据包
 	-d   为程序添加数据采集过滤规则
 	     比如：
-		 'port 80 and udp'   只抓取来自端口80的udp数据包
+		 'tcp port 80 and udp'   只抓取来自端口80的udp数据包
 		 'tcp port 23 and host 192.168.1.120'   获取主机192.168.1.120接收或发出的telnet包 
   	-i   指定网卡 
   	
@@ -43,7 +43,6 @@
 #include <string.h>
 
 #define BUFFER_MAX 2048
-#define ETH_NAME    "ens33"
 
 
  typedef int int32;
@@ -113,15 +112,17 @@ typedef struct pcap_pkg_hdr {
 */
 
 void analysis(char *buf);
-struct sock_fprog AddFilter(char Filter[]);
+struct sock_fprog AddFilter(char Filter[] ,char ETHNAME[] ,int FlagEth ,char *devStr);
 
  int main(int argc, char *argv[]){
   	int  SOCKET_SRC;
   	char buf[BUFFER_MAX];
   	char Filter[100];
 	char str[100];
+	char errBuf[2048];
    	char ETHNAME[100];
    	int FlagSave = 0;
+   	char *space = " ";
    	int FlagAnalysis = 0;
    	int FlagEth = 0;
    	int FlagFilter = 0;
@@ -135,6 +136,7 @@ struct sock_fprog AddFilter(char Filter[]);
 	PCAP_PKG_HDR pcap_pkg_hdr = {0};
 	struct timeval ts;
 	FILE *pfile;
+	char *devStr;
 	
 	for(int i = 1;i < argc; i++)
 	{
@@ -162,6 +164,14 @@ struct sock_fprog AddFilter(char Filter[]);
 					if(i+1 < argc)
 					{
 					strncpy(Filter,(argv[i+1]),99);
+					int j = i+2;
+					while(j < argc)
+					{
+					if(*argv[j] == '-')break;
+					strcat(Filter,space);
+					strcat(Filter,(argv[j]));
+					j++;
+					}
 					}
 					else
 					{
@@ -208,7 +218,7 @@ struct sock_fprog AddFilter(char Filter[]);
          exit(0);
     	}
     if(FlagEth)
-    	{
+    {
     	strncpy(ethreq.ifr_name,ETHNAME,IFNAMSIZ);
     	if (ioctl(SOCKET_SRC,SIOCGIFFLAGS, &ethreq)==-1)
 		{
@@ -220,7 +230,13 @@ struct sock_fprog AddFilter(char Filter[]);
 	else
 	{
 	/* Set the network card in promiscuos mode */
-  	strncpy(ethreq.ifr_name,ETH_NAME,IFNAMSIZ);
+	devStr = pcap_lookupdev(errBuf);
+	if (!devStr)
+    {
+        printf("error: lookupdev\n");
+        exit(1);
+    }
+  	strncpy(ethreq.ifr_name,devStr,IFNAMSIZ);
   	if (ioctl(SOCKET_SRC,SIOCGIFFLAGS, &ethreq)==-1)
 	{
     perror("ioctl");
@@ -238,7 +254,7 @@ struct sock_fprog AddFilter(char Filter[]);
     /*  input filter code  */
     if(FlagFilter)
     {
-	struct sock_fprog bpf = AddFilter(Filter);
+	struct sock_fprog bpf = AddFilter(Filter ,ETHNAME ,FlagEth ,devStr);
     if( (ret = setsockopt(SOCKET_SRC, SOL_SOCKET, SO_ATTACH_FILTER, &bpf, sizeof(bpf))))
     	{
     	 perror("setsockopt");
@@ -350,11 +366,15 @@ void analysis(char *buf)
 }
 
 
-struct sock_fprog AddFilter(char Filter[])
+struct sock_fprog AddFilter(char Filter[] ,char ETHNAME[] ,int FlagEth ,char *devStr)
 {
-    	char errBuf[2048];
-	pcap_t * device = pcap_open_live(ETH_NAME, 65535, 1, 0, errBuf);
-	 if (!device)
+    char errBuf[2048];
+    if(FlagEth)
+	{
+	devStr = ETHNAME;
+	}
+	pcap_t * device = pcap_open_live(devStr, 65535, 1, 0, errBuf);
+	if (!device)
     {
         printf("error: open_live\n");
         exit(1);
