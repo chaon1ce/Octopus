@@ -5,6 +5,8 @@
 	析。
 	Octopus支持针对网络层、协议、主机、网络或端口的过滤，并提
 	供and、or、not等逻辑语句来帮助你去掉无用的信息。 
+	Octopus过滤机制使用内核的BPF过滤（伯克利数据包过滤器，Be-
+	rkeley Packet Filter，工作在操作系统的内核态。)
 	
 	
     	./Octopus [ -c count ] [ -w file ] [ -v ]  [ -d filter ] [ -i interface ]
