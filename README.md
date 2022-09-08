@@ -7,3 +7,14 @@
   
   Octopus过滤机制使用内核的BPF过滤（伯克利数据包过滤器，Berkeley Packet Filter，工作在操作系统的内核态。)
   
+  	
+  	./Octopus [ -c count ] [ -w file ] [ -v ] [ -d filter ] [ -i interface ]
+    -c   收到count个计数包后退出。
+  	-w   将收到的文件以pacp格式保存在file路径文件中
+	-v   在命令行简单分析数据包
+	-d   为程序添加数据采集过滤规则
+	     比如：
+		 'tcp port 80 and udp'   只抓取来自端口80的udp数据包
+		 'tcp port 23 and host 192.168.1.120'   获取主机192.168.1.120接收或发出的telnet包 
+  	-i   指定网卡 
+  	
